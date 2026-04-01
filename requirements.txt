@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+chromadb
+presidio-analyzer
+presidio-anonymizer
+pymupdf
+sentence-transformers
+langchain
+langchain-community
+langchain-ollama
+langchain-chroma
+python-dotenv
+rich
+typer
+httpx
+pytest
+pytest-asyncio
