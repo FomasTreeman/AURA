@@ -227,6 +227,24 @@ class PeerIdentity:
 
     # ── Cryptographic operations ───────────────────────────────────────────────
 
+    def export_seeds(self) -> tuple[bytes, bytes]:
+        """
+        Export raw private key seeds for encrypted keystore storage.
+
+        Returns:
+            Tuple of (ed25519_seed_bytes, x25519_seed_bytes), each 32 bytes.
+        """
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding, PrivateFormat, NoEncryption
+        )
+        ed_seed = self._ed25519_priv.private_bytes(
+            Encoding.Raw, PrivateFormat.Raw, NoEncryption()
+        )
+        x_seed = self._x25519_priv.private_bytes(
+            Encoding.Raw, PrivateFormat.Raw, NoEncryption()
+        )
+        return ed_seed, x_seed
+
     def sign(self, data: bytes) -> bytes:
         """
         Sign data with the Ed25519 private key.

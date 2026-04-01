@@ -24,6 +24,8 @@ from backend.config import (
 from backend.ingestion.pipeline import ingest_directory, ingest_file
 from backend.rag.federated import FederatedRetriever
 from backend.rag.generator import check_ollama, federated_stream_answer, stream_answer
+from backend.rag.consensus import get_tombstones
+from backend.security.revocation import RevocationManager
 from backend.database.chroma import get_collection
 from backend.network.libp2p_adapter import AuraP2PAdapter
 from backend.network.metrics import METRICS
@@ -41,12 +43,13 @@ _adapter: AuraP2PAdapter | None = None
 _mdns: MDNSDiscovery | None = None
 _bootstrap: BootstrapDiscovery | None = None
 _federated: FederatedRetriever | None = None
+_revocation_mgr: RevocationManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run startup checks, then start the P2P adapter and federated retriever."""
-    global _adapter, _mdns, _bootstrap, _federated
+    """Run startup checks, then start the P2P adapter, federated retriever, and revocation manager."""
+    global _adapter, _mdns, _bootstrap, _federated, _revocation_mgr
 
     log.info("AURA node starting…")
 
@@ -84,6 +87,10 @@ async def lifespan(app: FastAPI):
         _federated = FederatedRetriever(identity, _adapter)
         log.info("Federated retriever initialised.")
 
+        # Phase 4 – Revocation manager
+        _revocation_mgr = RevocationManager(identity, _adapter)
+        log.info("Revocation manager initialised.")
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
@@ -95,6 +102,7 @@ async def lifespan(app: FastAPI):
     if _adapter:
         await _adapter.stop()
     _federated = None
+    _revocation_mgr = None
     log.info("AURA node shutdown complete.")
 
 
@@ -354,3 +362,81 @@ async def federated_query(request: FederatedQueryRequest) -> dict:
         "peers_responded": result.peers_responded,
         "duration_ms": result.duration_ms,
     }
+
+
+# ── Phase 4: Security & Integrity endpoints ───────────────────────────────────
+
+@app.get("/security/status")
+async def security_status() -> dict:
+    """Return Phase 4 security feature status."""
+    from backend.storage.ipfs_integration import is_valid_cid_v1
+    tombstones = list(get_tombstones())
+    return {
+        "did_active": _adapter is not None,
+        "peer_id": _adapter.peer_id if _adapter else None,
+        "did": f"did:key:{_adapter.peer_id}" if _adapter else None,
+        "revocation_manager_active": _revocation_mgr is not None,
+        "tombstoned_cids": len(tombstones),
+        "cid_enforcement": "enabled",
+        "auth_proof_type": "ed25519_assertion",
+        "zkp_provider": "polygon_id (not yet available for Python 3.14)",
+    }
+
+
+@app.get("/security/did")
+async def security_did() -> dict:
+    """Return this node's DID document."""
+    if _adapter is None:
+        raise HTTPException(status_code=503, detail="P2P adapter not running.")
+    from backend.config import P2P_KEY_DIR
+    from backend.network.peer import PeerIdentity
+    identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
+    return identity.export_did()
+
+
+class RevokeRequest(BaseModel):
+    """Request body to revoke a document."""
+    cid: str
+    ipfs_cid: str = ""
+    reason: str = ""
+
+
+@app.post("/revoke")
+async def revoke_document(request: RevokeRequest) -> dict:
+    """
+    Revoke a document by CID: tombstone locally and broadcast to all peers.
+    """
+    if not request.cid:
+        raise HTTPException(status_code=400, detail="cid is required.")
+    if _revocation_mgr is None:
+        # P2P not running – tombstone locally only
+        from backend.rag.consensus import add_tombstone
+        add_tombstone(request.cid)
+        return {"revoked": True, "cid": request.cid, "peers_notified": 0}
+    await _revocation_mgr.revoke(request.cid, request.ipfs_cid, request.reason)
+    peers_notified = len(_adapter.get_peers()) if _adapter else 0
+    return {"revoked": True, "cid": request.cid, "peers_notified": peers_notified}
+
+
+@app.get("/tombstones")
+async def list_tombstones() -> dict:
+    """List all currently tombstoned document CIDs."""
+    tombstones = sorted(get_tombstones())
+    return {"count": len(tombstones), "cids": tombstones}
+
+
+@app.delete("/document/{cid}")
+async def delete_document(cid: str) -> dict:
+    """
+    Delete a document's vectors from ChromaDB and tombstone the CID.
+    Does NOT broadcast revocation (use POST /revoke for that).
+    """
+    from backend.rag.consensus import add_tombstone
+    from backend.database.chroma import get_collection
+    add_tombstone(cid)
+    col = get_collection()
+    results = col.get(where={"cid": cid}, include=["metadatas"])
+    ids = results.get("ids", [])
+    if ids:
+        col.delete(ids=ids)
+    return {"deleted": True, "cid": cid, "chunks_removed": len(ids)}

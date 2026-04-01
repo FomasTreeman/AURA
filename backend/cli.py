@@ -147,5 +147,122 @@ def reset() -> None:
     console.print("[green]Collection reset.[/green]")
 
 
+# ── Key management command group ─────────────────────────────────────────────
+
+key_app = typer.Typer(name="key", help="Manage this node's DID keypair.", add_completion=False)
+app.add_typer(key_app)
+
+
+@key_app.command("show")
+def key_show() -> None:
+    """Display the current node's DID and public key information."""
+    from backend.config import P2P_KEY_DIR
+    from backend.network.peer import PeerIdentity
+    identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
+    console.print(f"[bold]DID:[/bold]          did:key:{identity.peer_id}")
+    console.print(f"[bold]Peer ID:[/bold]       {identity.peer_id}")
+    console.print(f"[bold]Ed25519 pubkey:[/bold] {identity.ed25519_pubkey_b64[:32]}…")
+    console.print(f"[bold]X25519 pubkey:[/bold]  {identity.x25519_pubkey_b64[:32]}…")
+
+
+@key_app.command("export")
+def key_export(
+    output: Path = typer.Argument(..., help="Output path for the encrypted keystore JSON."),
+    passphrase: str = typer.Option(
+        ...,
+        prompt=True,
+        hide_input=True,
+        confirmation_prompt=True,
+        help="Passphrase to encrypt the exported keystore.",
+    ),
+) -> None:
+    """Export an encrypted keystore file protected by a passphrase."""
+    from backend.config import P2P_KEY_DIR
+    from backend.network.peer import PeerIdentity
+    from backend.security.did import create_keystore
+    identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
+    # Re-create keystore with exported identity
+    from backend.security.did import DIDKeystore, _encrypt_seed
+    import json
+    ed_seed, x_seed = identity.export_seeds()
+    ks_data = {
+        "version": 1,
+        "peer_id": identity.peer_id,
+        "ed25519": _encrypt_seed(ed_seed, passphrase),
+        "x25519": _encrypt_seed(x_seed, passphrase),
+        "rotation_history": [],
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(ks_data, indent=2))
+    console.print(f"[green]Keystore exported to:[/green] {output}")
+    console.print(f"[dim]peer_id: {identity.peer_id[:24]}…[/dim]")
+
+
+@key_app.command("import")
+def key_import(
+    keystore_file: Path = typer.Argument(..., help="Path to the encrypted keystore JSON."),
+    passphrase: str = typer.Option(
+        ...,
+        prompt=True,
+        hide_input=True,
+        help="Passphrase to decrypt the keystore.",
+    ),
+) -> None:
+    """Import an encrypted keystore and set it as the active identity."""
+    from backend.security.did import load_keystore
+    try:
+        ks = load_keystore(keystore_file, passphrase)
+        console.print(f"[green]Keystore imported successfully.[/green]")
+        console.print(f"[bold]Peer ID:[/bold] {ks.peer_id}")
+        console.print(f"[bold]DID:[/bold]     {ks.did}")
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]Import failed:[/red] {exc}")
+        raise typer.Exit(code=1)
+
+
+@key_app.command("rotate")
+def key_rotate(
+    passphrase: str = typer.Option(
+        ..., prompt=True, hide_input=True,
+        help="Current keystore passphrase.",
+    ),
+    new_passphrase: str = typer.Option(
+        None, "--new-passphrase", prompt=False, hide_input=True,
+        help="New passphrase (leave empty to keep same).",
+    ),
+) -> None:
+    """Rotate this node's keypair. Generates a new key and signs the rotation record."""
+    from backend.config import P2P_KEY_DIR
+    from backend.security.did import create_keystore, load_keystore, rotate_key
+    ks_path = P2P_KEY_DIR / "keystore.json"
+    # Bootstrap: create encrypted keystore from seed files if not exists
+    if not ks_path.exists():
+        from backend.network.peer import PeerIdentity
+        identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
+        ed_seed, x_seed = identity.export_seeds()
+        from backend.security.did import _encrypt_seed
+        import json
+        ks_data = {
+            "version": 1,
+            "peer_id": identity.peer_id,
+            "ed25519": _encrypt_seed(ed_seed, passphrase),
+            "x25519": _encrypt_seed(x_seed, passphrase),
+            "rotation_history": [],
+        }
+        ks_path.parent.mkdir(parents=True, exist_ok=True)
+        ks_path.write_text(json.dumps(ks_data, indent=2))
+    try:
+        old_ks = load_keystore(ks_path, passphrase)
+    except ValueError as exc:
+        console.print(f"[red]Wrong passphrase:[/red] {exc}")
+        raise typer.Exit(code=1)
+    old_peer_id = old_ks.peer_id
+    new_ks = rotate_key(old_ks, passphrase, new_passphrase or None)
+    console.print(f"[green]Key rotated successfully.[/green]")
+    console.print(f"  Old peer_id: [dim]{old_peer_id}[/dim]")
+    console.print(f"  New peer_id: [bold]{new_ks.peer_id}[/bold]")
+    console.print("[yellow]Restart the node to activate the new identity.[/yellow]")
+
+
 if __name__ == "__main__":
     app()

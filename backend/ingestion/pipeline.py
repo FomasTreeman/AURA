@@ -16,6 +16,7 @@ from backend.config import (
 from backend.database.chroma import get_collection
 from backend.ingestion.parser import parse_pdf
 from backend.ingestion.redactor import redact
+from backend.storage.ipfs_integration import compute_file_cid
 from backend.utils.hashing import sha256_file
 from backend.utils.logging import get_logger
 
@@ -77,7 +78,8 @@ def ingest_file(path: Path) -> dict[str, int | str]:
         raise FileNotFoundError(f"File not found: {path}")
 
     cid = sha256_file(path)
-    log.info("Ingesting '%s'  CID=%s…", path.name, cid[:12])
+    ipfs_cid = compute_file_cid(path)
+    log.info("Ingesting '%s'  SHA256=%s…  IPFS=%s…", path.name, cid[:12], ipfs_cid[:16])
 
     splitter = _get_splitter()
     embedder = _get_embedder()
@@ -101,6 +103,7 @@ def ingest_file(path: Path) -> dict[str, int | str]:
                     "source": path.name,
                     "page": page_content.page_num,
                     "cid": cid,
+                    "ipfs_cid": ipfs_cid,
                 })
 
         if not all_chunks:
@@ -129,7 +132,7 @@ def ingest_file(path: Path) -> dict[str, int | str]:
         total_chunks,
         cid[:12],
     )
-    return {"file": path.name, "cid": cid, "chunks_added": total_chunks}
+    return {"file": path.name, "cid": cid, "ipfs_cid": ipfs_cid, "chunks_added": total_chunks}
 
 
 def ingest_directory(directory: Path) -> list[dict[str, int | str]]:

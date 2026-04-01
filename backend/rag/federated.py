@@ -55,9 +55,11 @@ from backend.network.protocol import (
     decrypt_body,
     encode_body_plain,
 )
+from backend.network.metrics import METRICS
 from backend.rag.consensus import apply_tombstones, deduplicate, tag_provenance
 from backend.rag.prompt import build_prompt
 from backend.rag.rrf import assign_chunk_ids, rrf_fuse
+from backend.storage.ipfs_integration import compute_cid_v1, is_valid_cid_v1
 from backend.utils.hashing import sha256_text
 from backend.utils.logging import get_logger
 
@@ -170,10 +172,11 @@ class FederatedRetriever:
             len(local_tagged),
         )
 
-        # ── 2. If no peers, return local only ──────────────────────────────
+        # ── 2. If no peers, return local only ──────────────────────────────────
         peers = self._adapter.get_peers()
         if not peers:
-            fused = rrf_fuse([local_tagged], k=RRF_K, top_k=top_k)
+            local_clean = apply_tombstones(local_tagged)
+            fused = rrf_fuse([local_clean], k=RRF_K, top_k=top_k)
             return FederatedResult(
                 chunks=fused,
                 local_count=len(local_tagged),
@@ -346,8 +349,27 @@ class FederatedRetriever:
             return
 
         query_id = payload.get("query_id", "")
-        chunks = payload.get("chunks", [])
+        raw_chunks = payload.get("chunks", [])
         node_id = payload.get("node_id", sender.peer_id)
+
+        # ── CID integrity check ──────────────────────────────────────────────
+        # Reject any chunk whose ipfs_cid doesn't match its text content.
+        # This detects tampering or data corruption at rest on peer nodes.
+        chunks = []
+        for chunk in raw_chunks:
+            ipfs_cid = chunk.get("ipfs_cid", "")
+            text = chunk.get("text", "")
+            if ipfs_cid and is_valid_cid_v1(ipfs_cid):
+                # Recompute CID from text bytes and compare
+                actual_cid = compute_cid_v1(text.encode("utf-8"))
+                if actual_cid != ipfs_cid:
+                    log.warning(
+                        "CID mismatch from peer %s: expected=%s actual=%s – chunk rejected",
+                        node_id[:12], ipfs_cid[:16], actual_cid[:16],
+                    )
+                    METRICS.failed_validations_total.inc()
+                    continue
+            chunks.append(chunk)
 
         queue = self._pending.get(query_id)
         if queue is not None:
