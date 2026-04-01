@@ -22,7 +22,8 @@ from backend.config import (
     P2P_PORT,
 )
 from backend.ingestion.pipeline import ingest_directory, ingest_file
-from backend.rag.generator import check_ollama, stream_answer
+from backend.rag.federated import FederatedRetriever
+from backend.rag.generator import check_ollama, federated_stream_answer, stream_answer
 from backend.database.chroma import get_collection
 from backend.network.libp2p_adapter import AuraP2PAdapter
 from backend.network.metrics import METRICS
@@ -39,12 +40,13 @@ log = get_logger(__name__)
 _adapter: AuraP2PAdapter | None = None
 _mdns: MDNSDiscovery | None = None
 _bootstrap: BootstrapDiscovery | None = None
+_federated: FederatedRetriever | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run startup checks, then start the P2P adapter."""
-    global _adapter, _mdns, _bootstrap
+    """Run startup checks, then start the P2P adapter and federated retriever."""
+    global _adapter, _mdns, _bootstrap, _federated
 
     log.info("AURA node starting…")
 
@@ -78,6 +80,10 @@ async def lifespan(app: FastAPI):
         _bootstrap = BootstrapDiscovery(_adapter, P2P_BOOTSTRAP)
         await _bootstrap.start()
 
+        # Phase 3 – Federated retriever
+        _federated = FederatedRetriever(identity, _adapter)
+        log.info("Federated retriever initialised.")
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
@@ -88,6 +94,7 @@ async def lifespan(app: FastAPI):
         await _mdns.stop()
     if _adapter:
         await _adapter.stop()
+    _federated = None
     log.info("AURA node shutdown complete.")
 
 
@@ -276,16 +283,74 @@ async def query(request: QueryRequest) -> StreamingResponse:
     """
     Ask a question against ingested documents.
 
-    Returns a streaming JSON-lines response.
-    Each line is one of:
+    Automatically uses federated retrieval when P2P peers are connected;
+    falls back to local-only when no peers are available.
+
+    Returns a streaming JSON-lines response:
+      {"federation": {...}}        – federation metadata (when federated)
       {"token": "..."}              – intermediate LLM token
-      {"done": true, "sources": []} – final message with source citations
+      {"done": true, "sources": []} – final message with citations
       {"error": "..."}              – error message
     """
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
     return StreamingResponse(
-        stream_answer(request.question),
+        federated_stream_answer(request.question, _federated),
         media_type="application/x-ndjson",
     )
+
+
+class FederatedQueryRequest(BaseModel):
+    """Request body for an explicit federated query (no LLM generation)."""
+    question: str
+    top_k: int = 10
+    timeout: float = 2.0
+
+
+@app.post("/query/federated")
+async def federated_query(request: FederatedQueryRequest) -> dict:
+    """
+    Execute a federated retrieval query and return the fused chunks directly
+    (without LLM generation). Useful for debugging and evaluation.
+
+    Returns:
+      {
+        "query_id": "...",
+        "chunks": [...],
+        "local_count": int,
+        "peer_count": int,
+        "peers_responded": [...],
+        "duration_ms": float
+      }
+    """
+    if not request.question or not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question must not be empty.")
+
+    if _federated is None:
+        # P2P not running – local-only fallback
+        from backend.rag.retriever import retrieve
+        from backend.rag.rrf import assign_chunk_ids
+        chunks = assign_chunk_ids(retrieve(request.question, top_k=request.top_k))
+        return {
+            "query_id": "local-only",
+            "chunks": chunks,
+            "local_count": len(chunks),
+            "peer_count": 0,
+            "peers_responded": [],
+            "duration_ms": 0,
+        }
+
+    result = await _federated.query(
+        request.question,
+        top_k=request.top_k,
+        timeout=request.timeout,
+    )
+    return {
+        "query_id": result.query_id,
+        "chunks": result.chunks,
+        "local_count": result.local_count,
+        "peer_count": result.peer_count,
+        "peers_responded": result.peers_responded,
+        "duration_ms": result.duration_ms,
+    }

@@ -99,5 +99,84 @@ async def stream_answer(question: str) -> AsyncGenerator[str, None]:
         yield json.dumps({"error": str(exc)}) + "\n"
         return
 
-    # Final message with source citations
+# Final message with source citations
+    yield json.dumps({"done": True, "sources": sources}) + "\n"
+
+
+async def federated_stream_answer(
+    question: str,
+    federated_retriever,  # FederatedRetriever | None
+) -> AsyncGenerator[str, None]:
+    """
+    Federated version of stream_answer.
+
+    If a FederatedRetriever is provided and peers are connected, broadcasts the
+    query and fuses results before generating. Falls back to local-only if no
+    retriever is available.
+
+    Each yielded item is a JSON line:
+      {"token": "..."}     — LLM token
+      {"federation": {...}} — federation metadata (peer count, query_id, etc.)
+      {"done": true, "sources": [...]}  — final with citations
+
+    Args:
+        question: User question string.
+        federated_retriever: FederatedRetriever instance or None.
+
+    Yields:
+        JSON-lines strings.
+    """
+    if federated_retriever is not None:
+        # Federated path
+        result = await federated_retriever.query(question)
+        chunks = result.chunks
+
+        # Emit federation metadata first
+        yield json.dumps({
+            "federation": {
+                "query_id": result.query_id,
+                "local_chunks": result.local_count,
+                "peer_chunks": result.peer_count,
+                "peers_responded": result.peers_responded,
+                "duration_ms": result.duration_ms,
+            }
+        }) + "\n"
+    else:
+        # Local-only fallback
+        from backend.rag.retriever import retrieve
+        chunks = retrieve(question)
+
+    sources = [
+        {
+            "source": c.get("source", "unknown"),
+            "page": c.get("page", 0),
+            "node_id": c.get("node_id", "local"),
+            "rrf_score": c.get("rrf_score"),
+            "cid": c.get("cid", "")[:12] if c.get("cid") else None,
+        }
+        for c in chunks
+    ]
+
+    prompt = build_prompt(question, chunks)
+    log.info(
+        "Generating federated answer: %r (%d chunks, %d peers)",
+        question[:60],
+        len(chunks),
+        len(getattr(getattr(federated_retriever, '_adapter', None), 'get_peers', lambda: [])()) if federated_retriever else 0,
+    )
+
+    llm = OllamaLLM(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        streaming=True,
+    )
+
+    try:
+        async for token in llm.astream(prompt):
+            yield json.dumps({"token": token}) + "\n"
+    except Exception as exc:
+        log.error("LLM generation error: %s", exc)
+        yield json.dumps({"error": str(exc)}) + "\n"
+        return
+
     yield json.dumps({"done": True, "sources": sources}) + "\n"
