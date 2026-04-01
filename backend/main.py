@@ -10,13 +10,24 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from backend.config import INGEST_DIR
+from backend.config import (
+    INGEST_DIR,
+    P2P_BOOTSTRAP,
+    P2P_HOST,
+    P2P_KEY_DIR,
+    P2P_MDNS_ENABLED,
+    P2P_PORT,
+)
 from backend.ingestion.pipeline import ingest_directory, ingest_file
 from backend.rag.generator import check_ollama, stream_answer
 from backend.database.chroma import get_collection
+from backend.network.libp2p_adapter import AuraP2PAdapter
+from backend.network.metrics import METRICS
+from backend.network.peer import PeerIdentity
+from backend.network.rendezvous import BootstrapDiscovery, MDNSDiscovery
 from backend.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -24,17 +35,60 @@ log = get_logger(__name__)
 
 # ── Startup/shutdown ──────────────────────────────────────────────────────────
 
+# Module-level P2P singletons (set during lifespan)
+_adapter: AuraP2PAdapter | None = None
+_mdns: MDNSDiscovery | None = None
+_bootstrap: BootstrapDiscovery | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run startup checks before accepting requests."""
+    """Run startup checks, then start the P2P adapter."""
+    global _adapter, _mdns, _bootstrap
+
     log.info("AURA node starting…")
+
+    # ── Ollama check (non-fatal) ───────────────────────────────────────────────
     try:
         check_ollama()
     except RuntimeError as exc:
-        log.error("Startup check failed: %s", exc)
-        # Don't crash – ingestion still works without Ollama
+        log.error("Ollama startup check failed: %s", exc)
+
+    # ── P2P Network ───────────────────────────────────────────────────────────
+    identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
+    _adapter = AuraP2PAdapter(identity)
+    try:
+        await _adapter.start(host=P2P_HOST, port=P2P_PORT)
+        log.info("P2P node started: peer_id=%s", identity.peer_id[:24])
+    except Exception as exc:
+        log.error("P2P adapter failed to start: %s", exc)
+        _adapter = None
+
+    if _adapter is not None:
+        # mDNS LAN discovery
+        if P2P_MDNS_ENABLED:
+            _mdns = MDNSDiscovery(identity, _adapter, P2P_PORT)
+            try:
+                await _mdns.start()
+            except Exception as exc:
+                log.warning("mDNS failed to start: %s", exc)
+                _mdns = None
+
+        # Bootstrap peers
+        _bootstrap = BootstrapDiscovery(_adapter, P2P_BOOTSTRAP)
+        await _bootstrap.start()
+
     yield
-    log.info("AURA node shutting down.")
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    log.info("AURA node shutting down…")
+    if _bootstrap:
+        await _bootstrap.stop()
+    if _mdns:
+        await _mdns.stop()
+    if _adapter:
+        await _adapter.stop()
+    log.info("AURA node shutdown complete.")
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
@@ -160,6 +214,61 @@ async def ingest_upload(files: list[UploadFile] = File(...)):
 
     total_chunks = sum(r.get("chunks_added", 0) for r in results)  # type: ignore[arg-type]
     return {"files_processed": len(results), "total_chunks": total_chunks, "results": results}
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus-compatible metrics endpoint."""
+    return Response(
+        content=METRICS.render_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@app.get("/network/status")
+async def network_status() -> dict:
+    """Return the current P2P network status for this node."""
+    if _adapter is None:
+        return {"running": False, "peer_id": None, "peers": 0, "multiaddr": None}
+    return {
+        "running": True,
+        "peer_id": _adapter.peer_id,
+        "multiaddr": _adapter.multiaddr,
+        "peers": len(_adapter.get_peers()),
+        "mdns_enabled": P2P_MDNS_ENABLED,
+    }
+
+
+@app.get("/network/peers")
+async def network_peers() -> dict:
+    """List all currently connected P2P peers."""
+    if _adapter is None:
+        return {"peers": []}
+    peers = [
+        {
+            "peer_id": p.peer_id,
+            "multiaddrs": p.multiaddrs,
+        }
+        for p in _adapter.get_peers()
+    ]
+    return {"count": len(peers), "peers": peers}
+
+
+@app.post("/network/dial")
+async def network_dial(body: dict) -> dict:
+    """
+    Manually dial a peer by multiaddr.
+    Body: {"multiaddr": "/ip4/1.2.3.4/tcp/9000/p2p/Qm..."}
+    """
+    if _adapter is None:
+        raise HTTPException(status_code=503, detail="P2P adapter not running.")
+    multiaddr = body.get("multiaddr")
+    if not multiaddr:
+        raise HTTPException(status_code=400, detail="multiaddr is required.")
+    peer = await _adapter.dial(multiaddr)
+    if peer is None:
+        raise HTTPException(status_code=502, detail=f"Failed to connect to {multiaddr}")
+    return {"connected": True, "peer_id": peer.peer_id}
 
 
 @app.post("/query")

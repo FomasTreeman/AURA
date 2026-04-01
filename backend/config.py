@@ -44,3 +44,18 @@ EMBEDDING_MODEL: str = _get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 RETRIEVAL_TOP_K: int = 5
 RETRIEVAL_SCORE_THRESHOLD: float = 0.3
+
+# ── P2P Network (Phase 2) ─────────────────────────────────────────────────────
+P2P_HOST: str = _get("P2P_HOST", "0.0.0.0")
+P2P_PORT: int = int(_get("P2P_PORT", "9000"))
+# Comma-separated list of bootstrap multiaddrs, e.g. /ip4/1.2.3.4/tcp/9000/p2p/<id>
+P2P_BOOTSTRAP: list[str] = [
+    a.strip() for a in _get("P2P_BOOTSTRAP", "").split(",") if a.strip()
+]
+P2P_MDNS_ENABLED: bool = _get("P2P_MDNS_ENABLED", "true").lower() == "true"
+# Directory for persisting this node's keypair
+P2P_KEY_DIR: Path = _resolve_path(_get("P2P_KEY_DIR", "./data/identity"))
+# Gossipsub topic for RAG queries
+AURA_QUERY_TOPIC: str = "/aura/query/1.0.0"
+# Message nonce TTL in seconds (replay protection window)
+NONCE_TTL: int = int(_get("NONCE_TTL", "300"))
