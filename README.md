@@ -102,12 +102,12 @@ Ask a question that only exists in Node 2’s documents → watch the magic happ
 
 ### 🗺️ Roadmap (Current Status)
 
-- ✅ **Phase 1** – Sovereign local RAG (offline)
-- ✅ **Phase 2** – Full libp2p Gossipsub mesh
-- ✅ **Phase 3** – Federated RAG + RRF
-- ✅ **Phase 4** – Polygon ID ZKPs + IPFS integrity + Presidio
-- ✅ **Phase 5** – Next.js UI + Prometheus + GreenOps dashboard
-- 🔄 **Phase 6** – Document revocation, model manifest, query obfuscation, encrypted backups (in progress)
+- ✅ **Local RAG** – Sovereign local node (offline)
+- ✅ **P2P Mesh** – Full libp2p Gossipsub mesh
+- ✅ **Federated RAG** – Distributed retrieval + RRF fusion
+- ✅ **Zero-Trust Security** – Polygon ID ZKPs + IPFS integrity + Presidio
+- ✅ **Observability** – Next.js UI + Prometheus + GreenOps dashboard
+- 🔄 **Resilience** – Document revocation, model manifest, query obfuscation, encrypted backups (in progress)
 
 ---
 
