@@ -144,6 +144,7 @@ class TestSaveSession:
         hist.save_session(session, "Answer", 50.0)
 
         result = hist.get_session("federation-test")
+        assert result is not None
         assert result["federation_info"]["peers_responded"] == ["peer1", "peer2"]
 
     def test_save_session_with_error(self, mock_db_path):
@@ -160,6 +161,7 @@ class TestSaveSession:
         hist.save_session(session, "", 0.0)
 
         result = hist.get_session("error-test")
+        assert result is not None
         assert result["error"] == "Ollama connection failed"
 
     def test_save_session_replaces_on_conflict(self, mock_db_path):
@@ -176,6 +178,7 @@ class TestSaveSession:
         hist.save_session(session2, "Updated answer", 200.0)
 
         result = hist.get_session("replace-test")
+        assert result is not None
         assert result["answer"] == "Updated answer"
         assert result["duration_ms"] == 200.0
 
