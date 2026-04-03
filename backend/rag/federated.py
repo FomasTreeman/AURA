@@ -18,7 +18,7 @@ Query protocol
         "query_id": "<uuid>",
         "question": "<text>",         # encrypted per peer
         "max_results": <int>,
-        "auth_sig": "<b64>",          # Phase 3 placeholder; full ZKP in Phase 4
+        "auth_sig": "<b64>",          # Auth signature placeholder; ZKP in Security
         "requester_peer_id": "<id>",
         "requester_x25519_pub": "<b64>"
     }
@@ -31,6 +31,7 @@ Query protocol
         "node_id": "<peer_id>"
     }
 """
+
 import asyncio
 import base64
 import json
@@ -79,6 +80,7 @@ class FederatedResult:
         query_id: Unique ID for this federated query.
         duration_ms: Total time from broadcast to result in milliseconds.
     """
+
     chunks: list[dict]
     local_count: int
     peer_count: int
@@ -100,12 +102,14 @@ def _default_local_retriever(
     top_k: int,
     threshold: float = 1.0,
 ) -> list[dict]:
-    """Default retriever: uses Phase 1 ChromaDB retrieve()."""
+    """Default retriever: uses ChromaDB retrieve()."""
     from backend.rag.retriever import retrieve
+
     return retrieve(question, top_k=top_k, score_threshold=threshold)
 
 
 # ── FederatedRetriever ────────────────────────────────────────────────────────
+
 
 class FederatedRetriever:
     """
@@ -156,6 +160,7 @@ class FederatedRetriever:
             FederatedResult with fused chunks and provenance metadata.
         """
         import time
+
         t0 = time.monotonic()
         query_id = str(uuid.uuid4())
 
@@ -232,9 +237,7 @@ class FederatedRetriever:
                         # drain briefly then break
                         break
                 except asyncio.TimeoutError:
-                    log.info(
-                        "Federated[%s] timeout waiting for peers", query_id[:8]
-                    )
+                    log.info("Federated[%s] timeout waiting for peers", query_id[:8])
                     break
 
         finally:
@@ -268,9 +271,7 @@ class FederatedRetriever:
 
     # ── P2P message handlers ──────────────────────────────────────────────────
 
-    async def _handle_peer_query(
-        self, envelope: Envelope, sender: PeerInfo
-    ) -> None:
+    async def _handle_peer_query(self, envelope: Envelope, sender: PeerInfo) -> None:
         """
         Handle an incoming query_request from another node.
 
@@ -330,9 +331,7 @@ class FederatedRetriever:
         )
         await self._adapter.publish_envelope(response_envelope, requester_peer_id)
 
-    async def _handle_peer_response(
-        self, envelope: Envelope, sender: PeerInfo
-    ) -> None:
+    async def _handle_peer_response(self, envelope: Envelope, sender: PeerInfo) -> None:
         """
         Handle an incoming query_response from a peer.
 
@@ -365,7 +364,9 @@ class FederatedRetriever:
                 if actual_cid != ipfs_cid:
                     log.warning(
                         "CID mismatch from peer %s: expected=%s actual=%s – chunk rejected",
-                        node_id[:12], ipfs_cid[:16], actual_cid[:16],
+                        node_id[:12],
+                        ipfs_cid[:16],
+                        actual_cid[:16],
                     )
                     METRICS.failed_validations_total.inc()
                     continue
@@ -375,6 +376,4 @@ class FederatedRetriever:
         if queue is not None:
             await queue.put((node_id, chunks))
         else:
-            log.debug(
-                "Received response for unknown/expired query_id %s", query_id[:8]
-            )
+            log.debug("Received response for unknown/expired query_id %s", query_id[:8])

@@ -1,13 +1,13 @@
 """
 Zero-Knowledge Proof authorization for AURA queries.
 
-Phase 3 used a simple Ed25519 auth_sig as a placeholder.
-Phase 4 promotes this to a proper signed assertion system with:
+The system uses Ed25519 auth_sig as a placeholder.
+A proper signed assertion system with:
   - AuthClaims: structured claim set (peer_id, timestamp, allowed_topics, scope)
   - AuthProof:  Ed25519 signature over the canonical JSON serialisation of claims
   - Challenge/response: ephemeral nonce prevents replay even with same claims
 
-Future upgrade path (Phase 5+):
+Future upgrade path:
   Swap verify_auth_proof() for Polygon ID's SDK once it supports Python 3.14:
     from polygon_id import CredentialRequest, verify_zkp_proof
   The rest of the calling code does not need to change — only this module.
@@ -19,6 +19,7 @@ Polygon ID integration notes:
   - Proof type: Groth16 BN128
   - Issuer DID: node's did:key or did:polygonid
 """
+
 import base64
 import json
 import os
@@ -51,6 +52,7 @@ class AuthClaims:
         allowed_topics: List of P2P topics the claimant is authorised for.
         ed25519_pubkey_b64: Claimant's Ed25519 public key for verification.
     """
+
     peer_id: str
     issued_at: float
     nonce: str
@@ -84,6 +86,7 @@ class AuthProof:
         signature_b64: Ed25519 signature over claims.to_canonical_bytes().
         proof_type: 'ed25519_assertion' (current) or 'polygon_id_zkp' (future).
     """
+
     claims: AuthClaims
     signature_b64: str
     proof_type: str = "ed25519_assertion"
@@ -123,6 +126,7 @@ class AuthProof:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def create_auth_proof(
     identity: PeerIdentity,
@@ -217,8 +221,12 @@ def verify_auth_proof(
         log.warning("Auth proof missing ed25519_pubkey_b64")
         return False
 
-    if not verify_signature(proof.signature_b64, claims.to_canonical_bytes(), pubkey_b64):
-        log.warning("Auth proof signature verification failed for peer %s", claims.peer_id[:16])
+    if not verify_signature(
+        proof.signature_b64, claims.to_canonical_bytes(), pubkey_b64
+    ):
+        log.warning(
+            "Auth proof signature verification failed for peer %s", claims.peer_id[:16]
+        )
         return False
 
     # ── 5. Scope ───────────────────────────────────────────────────────────────

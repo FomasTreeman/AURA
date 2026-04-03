@@ -9,10 +9,11 @@ Every AURA node gossips a signed manifest describing its active LLM:
 
 When a node receives a query, it can check the requester's manifest
 against its own. If models differ significantly, the node can fall back
-to a designated "heavy-lifter" node (Phase 5+ routing logic).
+  to a designated "heavy-lifter" node (routing logic).
 
 Gossip topic: /aura/model_manifest/1.0.0
 """
+
 import base64
 import hashlib
 import json
@@ -47,6 +48,7 @@ class ModelManifest:
         ed25519_pubkey_b64: Signer's public key for verification.
         signature_b64: Ed25519 signature over canonical payload bytes.
     """
+
     version: int
     peer_id: str
     model_name: str
@@ -184,9 +186,7 @@ def verify_manifest(manifest: ModelManifest) -> bool:
         manifest.ed25519_pubkey_b64,
     )
     if not valid:
-        log.warning(
-            "Invalid manifest signature from peer %s", manifest.peer_id[:16]
-        )
+        log.warning("Invalid manifest signature from peer %s", manifest.peer_id[:16])
     return valid
 
 

@@ -4,11 +4,12 @@ Consensus and data-hygiene policies for AURA federated retrieval.
 Responsibilities:
   - Deduplication: remove duplicate chunks by chunk_id across merged lists.
   - Tombstoning: filter out chunks from documents that have been revoked/deleted
-    (Phase 6 will add full pub/sub revocation; Phase 3 provides the enforcement stub).
+    (pub/sub revocation in Resilience; Federated RAG provides the enforcement stub).
   - TTL enforcement: drop chunks whose source document was ingested beyond a
     configurable age (future use).
   - Provenance tagging: annotate each chunk with the node_id(s) that returned it.
 """
+
 import hashlib
 import time
 from typing import Callable
@@ -17,11 +18,12 @@ from backend.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-# Module-level in-memory tombstone set (Phase 6 will populate this via P2P pub/sub)
+# Module-level in-memory tombstone set (populated via P2P pub/sub in Resilience)
 _tombstoned_cids: set[str] = set()
 
 
 # ── Tombstone management ──────────────────────────────────────────────────────
+
 
 def add_tombstone(cid: str) -> None:
     """
@@ -72,6 +74,7 @@ def apply_tombstones(
 
 
 # ── Deduplication ─────────────────────────────────────────────────────────────
+
 
 def deduplicate(chunks: list[dict]) -> list[dict]:
     """
@@ -125,6 +128,7 @@ def deduplicate(chunks: list[dict]) -> list[dict]:
 
 # ── Score normalization ───────────────────────────────────────────────────────
 
+
 def normalize_scores_per_node(
     chunks: list[dict],
     score_key: str = "distance",
@@ -167,6 +171,7 @@ def normalize_scores_per_node(
 
 
 # ── Provenance tagging ────────────────────────────────────────────────────────
+
 
 def tag_provenance(chunks: list[dict], node_id: str) -> list[dict]:
     """

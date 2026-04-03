@@ -26,6 +26,7 @@ Keystore format (JSON file):
 Key derivation: PBKDF2-HMAC-SHA256, 260,000 iterations, 32-byte output.
 Encryption:    AES-256-GCM with 12-byte random nonce.
 """
+
 import base64
 import hashlib
 import json
@@ -50,6 +51,7 @@ _KEYSTORE_VERSION = 1
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:
     """Derive a 32-byte AES key from a passphrase + salt via PBKDF2-HMAC-SHA256."""
@@ -94,12 +96,14 @@ def _decrypt_seed(enc: dict, passphrase: str) -> bytes:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class KeyRotationRecord:
     """Record of a past key rotation event."""
+
     old_peer_id: str
     rotated_at: float
-    rotation_sig: str   # Ed25519 signature by old key over new_peer_id + rotated_at
+    rotation_sig: str  # Ed25519 signature by old key over new_peer_id + rotated_at
 
 
 @dataclass
@@ -112,6 +116,7 @@ class DIDKeystore:
         rotation_history: List of past key rotation events.
         keystore_path: Path to the encrypted keystore file.
     """
+
     identity: PeerIdentity
     rotation_history: list[KeyRotationRecord] = field(default_factory=list)
     keystore_path: Path | None = None
@@ -163,7 +168,11 @@ def create_keystore(
     }
     keystore_path.parent.mkdir(parents=True, exist_ok=True)
     keystore_path.write_text(json.dumps(keystore_data, indent=2))
-    log.info("Created encrypted keystore at %s (peer_id=%s)", keystore_path, identity.peer_id[:16])
+    log.info(
+        "Created encrypted keystore at %s (peer_id=%s)",
+        keystore_path,
+        identity.peer_id[:16],
+    )
     return DIDKeystore(identity=identity, keystore_path=keystore_path)
 
 
@@ -210,8 +219,12 @@ def load_keystore(
         )
         for r in data.get("rotation_history", [])
     ]
-    log.info("Loaded keystore from %s (peer_id=%s)", keystore_path, identity.peer_id[:16])
-    return DIDKeystore(identity=identity, rotation_history=history, keystore_path=keystore_path)
+    log.info(
+        "Loaded keystore from %s (peer_id=%s)", keystore_path, identity.peer_id[:16]
+    )
+    return DIDKeystore(
+        identity=identity, rotation_history=history, keystore_path=keystore_path
+    )
 
 
 def rotate_key(
@@ -241,7 +254,9 @@ def rotate_key(
 
     # Sign the rotation: old_key signs (new_peer_id + timestamp)
     rotation_payload = f"{new_identity.peer_id}:{rotated_at:.6f}".encode()
-    rotation_sig = base64.b64encode(old_keystore.identity.sign(rotation_payload)).decode()
+    rotation_sig = base64.b64encode(
+        old_keystore.identity.sign(rotation_payload)
+    ).decode()
 
     ed_seed, x_seed = new_identity.export_seeds()
 
@@ -310,7 +325,7 @@ def verify_rotation_chain(keystore: DIDKeystore) -> bool:
         # Derive the old peer's Ed25519 pubkey from its peer_id is not directly
         # possible — we need the pubkey stored in rotation history.
         # For now, we verify the signature format and presence.
-        # Full verification requires storing pubkey in rotation record (Phase 6 enhancement).
+        # Full verification requires storing pubkey in rotation record (Resilience enhancement).
         if not record.rotation_sig:
             return False
 

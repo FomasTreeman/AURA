@@ -6,6 +6,7 @@ Exposes:
   GET  /health  – liveness check (includes Ollama status)
   GET  /stats   – collection document count
 """
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -83,11 +84,11 @@ async def lifespan(app: FastAPI):
         _bootstrap = BootstrapDiscovery(_adapter, P2P_BOOTSTRAP)
         await _bootstrap.start()
 
-        # Phase 3 – Federated retriever
+        # Federated retriever
         _federated = FederatedRetriever(identity, _adapter)
         log.info("Federated retriever initialised.")
 
-        # Phase 4 – Revocation manager
+        # Revocation manager
         _revocation_mgr = RevocationManager(identity, _adapter)
         log.info("Revocation manager initialised.")
 
@@ -118,18 +119,22 @@ app = FastAPI(
 
 # ── Request/response models ───────────────────────────────────────────────────
 
+
 class IngestRequest(BaseModel):
     """Request body for directory-based ingestion."""
+
     directory: str | None = None  # defaults to INGEST_DIR env var
 
 
 class QueryRequest(BaseModel):
     """Request body for a RAG query."""
+
     question: str
 
 
 class IngestResponse(BaseModel):
     """Summary of an ingestion run."""
+
     files_processed: int
     total_chunks: int
     results: list[dict]
@@ -137,11 +142,13 @@ class IngestResponse(BaseModel):
 
 class StatsResponse(BaseModel):
     """Basic stats about the vector store."""
+
     collection: str
     document_count: int
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health() -> dict:
@@ -215,7 +222,9 @@ async def ingest_upload(files: list[UploadFile] = File(...)):
     results = []
     for upload in files:
         if not upload.filename or not upload.filename.lower().endswith(".pdf"):
-            results.append({"file": upload.filename, "error": "Not a PDF", "chunks_added": 0})
+            results.append(
+                {"file": upload.filename, "error": "Not a PDF", "chunks_added": 0}
+            )
             continue
         dest = INGEST_DIR / upload.filename
         with open(dest, "wb") as fh:
@@ -225,10 +234,16 @@ async def ingest_upload(files: list[UploadFile] = File(...)):
             results.append(result)
         except Exception as exc:
             log.error("Upload ingest error for '%s': %s", upload.filename, exc)
-            results.append({"file": upload.filename, "error": str(exc), "chunks_added": 0})
+            results.append(
+                {"file": upload.filename, "error": str(exc), "chunks_added": 0}
+            )
 
     total_chunks = sum(r.get("chunks_added", 0) for r in results)  # type: ignore[arg-type]
-    return {"files_processed": len(results), "total_chunks": total_chunks, "results": results}
+    return {
+        "files_processed": len(results),
+        "total_chunks": total_chunks,
+        "results": results,
+    }
 
 
 @app.get("/metrics")
@@ -311,6 +326,7 @@ async def query(request: QueryRequest) -> StreamingResponse:
 
 class FederatedQueryRequest(BaseModel):
     """Request body for an explicit federated query (no LLM generation)."""
+
     question: str
     top_k: int = 10
     timeout: float = 2.0
@@ -339,6 +355,7 @@ async def federated_query(request: FederatedQueryRequest) -> dict:
         # P2P not running – local-only fallback
         from backend.rag.retriever import retrieve
         from backend.rag.rrf import assign_chunk_ids
+
         chunks = assign_chunk_ids(retrieve(request.question, top_k=request.top_k))
         return {
             "query_id": "local-only",
@@ -364,12 +381,14 @@ async def federated_query(request: FederatedQueryRequest) -> dict:
     }
 
 
-# ── Phase 4: Security & Integrity endpoints ───────────────────────────────────
+# ── Security & Integrity endpoints ─────────────────────────────────────────────
+
 
 @app.get("/security/status")
 async def security_status() -> dict:
-    """Return Phase 4 security feature status."""
+    """Return security feature status."""
     from backend.storage.ipfs_integration import is_valid_cid_v1
+
     tombstones = list(get_tombstones())
     return {
         "did_active": _adapter is not None,
@@ -390,12 +409,14 @@ async def security_did() -> dict:
         raise HTTPException(status_code=503, detail="P2P adapter not running.")
     from backend.config import P2P_KEY_DIR
     from backend.network.peer import PeerIdentity
+
     identity = PeerIdentity.load_or_create(P2P_KEY_DIR)
     return identity.export_did()
 
 
 class RevokeRequest(BaseModel):
     """Request body to revoke a document."""
+
     cid: str
     ipfs_cid: str = ""
     reason: str = ""
@@ -411,6 +432,7 @@ async def revoke_document(request: RevokeRequest) -> dict:
     if _revocation_mgr is None:
         # P2P not running – tombstone locally only
         from backend.rag.consensus import add_tombstone
+
         add_tombstone(request.cid)
         return {"revoked": True, "cid": request.cid, "peers_notified": 0}
     await _revocation_mgr.revoke(request.cid, request.ipfs_cid, request.reason)
@@ -433,6 +455,7 @@ async def delete_document(cid: str) -> dict:
     """
     from backend.rag.consensus import add_tombstone
     from backend.database.chroma import get_collection
+
     add_tombstone(cid)
     col = get_collection()
     results = col.get(where={"cid": cid}, include=["metadatas"])

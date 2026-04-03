@@ -2,6 +2,7 @@
 Unit tests for backend.storage.ipfs_integration.
 Covers: CIDv1 computation determinism, known vectors, file CID, validation.
 """
+
 import hashlib
 from pathlib import Path
 
@@ -80,7 +81,7 @@ class TestComputeFileCid:
 
     def test_matches_compute_cid_v1(self, tmp_path):
         """File CID must match CID computed from the file's bytes."""
-        content = b"AURA Phase 4 test content"
+        content = b"AURA Security test content"
         f = tmp_path / "test.bin"
         f.write_bytes(content)
         assert compute_file_cid(f) == compute_cid_v1(content)

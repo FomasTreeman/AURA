@@ -2,6 +2,7 @@
 Configuration module for AURA backend.
 Loads settings from .env and exposes typed constants.
 """
+
 from pathlib import Path
 from dotenv import load_dotenv
 import os
@@ -45,7 +46,7 @@ EMBEDDING_MODEL: str = _get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 RETRIEVAL_TOP_K: int = 5
 RETRIEVAL_SCORE_THRESHOLD: float = 0.3
 
-# ── Federated RAG (Phase 3) ─────────────────────────────────────────────────
+# ── Federated RAG ───────────────────────────────────────────────────────────
 FEDERATED_TIMEOUT: float = float(_get("FEDERATED_TIMEOUT", "2.0"))
 FEDERATED_QUORUM: int = int(_get("FEDERATED_QUORUM", "1"))
 FEDERATED_MAX_RESPONSES: int = int(_get("FEDERATED_MAX_RESPONSES", "5"))
@@ -54,7 +55,7 @@ RRF_K: int = int(_get("RRF_K", "60"))
 FEDERATED_LOCAL_FANOUT: int = int(_get("FEDERATED_LOCAL_FANOUT", "3"))
 EMBEDDING_CACHE_TTL: int = int(_get("EMBEDDING_CACHE_TTL", "30"))
 
-# ── P2P Network (Phase 2) ─────────────────────────────────────────────────────
+# ── P2P Network ───────────────────────────────────────────────────────────────
 P2P_HOST: str = _get("P2P_HOST", "0.0.0.0")
 P2P_PORT: int = int(_get("P2P_PORT", "9000"))
 # Comma-separated list of bootstrap multiaddrs, e.g. /ip4/1.2.3.4/tcp/9000/p2p/<id>

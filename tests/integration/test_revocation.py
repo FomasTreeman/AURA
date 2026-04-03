@@ -1,5 +1,5 @@
 """
-Integration tests for AURA Phase 4 revocation system.
+Integration tests for AURA revocation system.
 
 Tests verify:
  - Local tombstoning removes chunks from ChromaDB
@@ -7,6 +7,7 @@ Tests verify:
  - Tombstoned CIDs are excluded from federated query results
  - CID integrity enforcement rejects tampered chunks
 """
+
 import asyncio
 import socket
 
@@ -42,6 +43,7 @@ def _make_chunk(text: str, cid: str, source: str = "doc.pdf") -> dict:
 def _make_retriever_fn(chunks):
     def fn(question, top_k, threshold=1.0):
         return chunks[:top_k]
+
     return fn
 
 
@@ -56,12 +58,14 @@ async def _make_node(port, retriever_fn=None):
 
 # ── Tombstone tests ───────────────────────────────────────────────────────────
 
+
 class TestLocalTombstone:
     """Tests for local tombstoning."""
 
     def setup_method(self):
         """Clear tombstones before each test."""
         import backend.rag.consensus as m
+
         m._tombstoned_cids.clear()
 
     def test_add_tombstone_persists(self):
@@ -93,6 +97,7 @@ class TestLocalTombstone:
 
 # ── CID integrity enforcement ─────────────────────────────────────────────────
 
+
 class TestCIDIntegrity:
     """Tests for CID integrity checks on peer responses."""
 
@@ -104,6 +109,7 @@ class TestCIDIntegrity:
         chunk["ipfs_cid"] = ipfs_cid
         # Verify manually
         from backend.storage.ipfs_integration import verify_cid_bytes
+
         assert verify_cid_bytes(text.encode(), ipfs_cid)
 
     def test_tampered_text_fails_cid_check(self):
@@ -111,6 +117,7 @@ class TestCIDIntegrity:
         original = "original text"
         ipfs_cid = compute_cid_v1(original.encode())
         from backend.storage.ipfs_integration import verify_cid_bytes
+
         assert not verify_cid_bytes(b"tampered text", ipfs_cid)
 
     def test_compute_cid_v1_deterministic_for_text(self):
@@ -123,12 +130,14 @@ class TestCIDIntegrity:
 
 # ── P2P revocation propagation ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 class TestRevocationPropagation:
     """Tests for revocation broadcast between two nodes."""
 
     def setup_method(self):
         import backend.rag.consensus as m
+
         m._tombstoned_cids.clear()
 
     async def test_revoke_adds_local_tombstone(self):
@@ -171,7 +180,9 @@ class TestRevocationPropagation:
             # Note: peer tombstone is applied in node B's consensus module
             # We test it via apply_tombstones on the chunks
             result = apply_tombstones(chunks_b)
-            assert len(result) == 0, "Tombstoned chunk still in results after revocation"
+            assert len(result) == 0, (
+                "Tombstoned chunk still in results after revocation"
+            )
 
         finally:
             await adapter_a.stop()
@@ -183,9 +194,7 @@ class TestRevocationPropagation:
 
         cid = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
         chunks = [_make_chunk("sensitive document text", cid=cid)]
-        _, adapter, fed, mgr = await _make_node(
-            port_a, _make_retriever_fn(chunks)
-        )
+        _, adapter, fed, mgr = await _make_node(port_a, _make_retriever_fn(chunks))
 
         try:
             # Revoke before query

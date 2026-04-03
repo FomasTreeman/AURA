@@ -1,5 +1,5 @@
 """
-Document revocation for AURA – Phase 4.
+Document revocation for AURA.
 
 RevocationManager handles:
   1. Local revocation: tombstone a CID, delete its vectors from ChromaDB.
@@ -16,6 +16,7 @@ Wire format (body of a query_response envelope, plaintext broadcast):
     "peer_id":    "<revoking-peer-id>"
   }
 """
+
 import base64
 import json
 import time
@@ -88,9 +89,7 @@ class RevocationManager:
         # Local tombstone
         add_tombstone(cid)
         deleted = self._delete_from_chroma(cid)
-        log.info(
-            "Revoked CID %s locally (%d chunks deleted)", cid[:12], deleted
-        )
+        log.info("Revoked CID %s locally (%d chunks deleted)", cid[:12], deleted)
 
         # Broadcast to peers
         if self._adapter.get_peers():
@@ -140,6 +139,7 @@ class RevocationManager:
         """
         try:
             from backend.database.chroma import get_collection
+
             col = get_collection()
             results = col.get(where={"cid": cid}, include=["metadatas"])
             ids = results.get("ids", [])
@@ -151,9 +151,7 @@ class RevocationManager:
             log.error("ChromaDB deletion failed for CID %s: %s", cid[:12], exc)
             return 0
 
-    async def _handle_revocation(
-        self, envelope: Envelope, sender: PeerInfo
-    ) -> None:
+    async def _handle_revocation(self, envelope: Envelope, sender: PeerInfo) -> None:
         """
         Handle an incoming revocation broadcast from a peer.
 
@@ -162,6 +160,7 @@ class RevocationManager:
         """
         # Verify envelope signature
         from backend.network.protocol import verify_envelope
+
         nonce_cache: set[str] = set()
         if not verify_envelope(envelope, nonce_cache):
             log.warning(
@@ -187,7 +186,9 @@ class RevocationManager:
 
         # Already tombstoned?
         if cid in get_tombstones():
-            log.debug("CID %s already tombstoned, ignoring duplicate revocation", cid[:12])
+            log.debug(
+                "CID %s already tombstoned, ignoring duplicate revocation", cid[:12]
+            )
             return
 
         add_tombstone(cid)
