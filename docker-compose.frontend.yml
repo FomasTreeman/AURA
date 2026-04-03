@@ -1,0 +1,168 @@
+version: "3.9"
+
+# AURA Full Stack Demo
+# Includes: Backend (3-node mesh), Frontend, Prometheus, Grafana
+#
+# Node 1 (backend) is the rendezvous anchor. Nodes 2 and 3 auto-discover
+# it on startup — no peer_id needs to be known in advance.
+#
+# Usage:
+#   docker compose -f docker-compose.frontend.yml up --build
+#
+# Dashboard: http://localhost:3000
+# Node 1 API: http://localhost:8000
+# Node 2 API: http://localhost:8002
+# Node 3 API: http://localhost:8003
+
+services:
+  # ── Node 1: Bootstrap / Rendezvous anchor ────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aura-backend:latest   # tag used by node orchestration to spawn peers
+    container_name: aura-node1
+    ports:
+      - "8000:8000"   # API (also serves the rendezvous registry)
+      - "9000:9000"   # P2P
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - CHROMA_PATH=/data/chroma_db
+      - INGEST_DIR=/data/documents
+      - P2P_KEY_DIR=/data/identity
+      - P2P_HOST=0.0.0.0
+      - P2P_PORT=9000
+      # Advertise the Docker service name so other containers can dial us
+      - P2P_ADVERTISE_HOST=backend
+      - P2P_MDNS_ENABLED=false
+      # No RENDEZVOUS_URL — this node IS the rendezvous
+      # Enable orchestration so the dashboard can spawn new peer nodes
+      - ORCHESTRATION_ENABLED=true
+    volumes:
+      - ./data:/data
+      # Docker socket access — required for node orchestration
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - aura-network
+
+  # ── Node 2 ───────────────────────────────────────────────────────────────────
+  aura-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aura-node2
+    ports:
+      - "8002:8000"
+      - "9002:9000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - CHROMA_PATH=/data/chroma_db
+      - INGEST_DIR=/data/documents
+      - P2P_KEY_DIR=/data/identity
+      - P2P_HOST=0.0.0.0
+      - P2P_PORT=9000
+      - P2P_ADVERTISE_HOST=aura-node2
+      - P2P_MDNS_ENABLED=false
+      # Registers with node1's rendezvous to discover peers automatically
+      - RENDEZVOUS_URL=http://backend:8000
+    volumes:
+      - node2_data:/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aura-network
+
+  # ── Node 3 ───────────────────────────────────────────────────────────────────
+  aura-node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aura-node3
+    ports:
+      - "8003:8000"
+      - "9003:9000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - CHROMA_PATH=/data/chroma_db
+      - INGEST_DIR=/data/documents
+      - P2P_KEY_DIR=/data/identity
+      - P2P_HOST=0.0.0.0
+      - P2P_PORT=9000
+      - P2P_ADVERTISE_HOST=aura-node3
+      - P2P_MDNS_ENABLED=false
+      - RENDEZVOUS_URL=http://backend:8000
+    volumes:
+      - node3_data:/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aura-network
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Point at node1 — the dashboard shows node1's perspective of the mesh
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_GRAFANA_URL=http://localhost:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aura-network
+
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    networks:
+      - aura-network
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=aura
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/aura.json:ro
+    depends_on:
+      - prometheus
+    networks:
+      - aura-network
+
+networks:
+  aura-network:
+    driver: bridge
+
+volumes:
+  node2_data:
+  node3_data:
+  prometheus_data:
+  grafana_data:
