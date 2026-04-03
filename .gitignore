@@ -1,13 +1,76 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
-data/chroma_db/
-data/documents/
+*.pyd
+.Python
+*.so
+*.egg
 *.egg-info/
 dist/
 build/
+eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Data (local state - DO NOT COMMIT)
+data/chroma_db/
+data/documents/
+data/chat_history.db
+data/identity/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Node
 node_modules/
+
+# Frontend
 frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/.vercel/
+
+# Docker
+.dockerignore
+
+# Prometheus
+prometheus_data/
+grafana_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
+.cache/
