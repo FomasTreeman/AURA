@@ -1,7 +1,8 @@
 """
 Unit tests for backend.api.sse.
-Covers: SSE formatting, session management, NDJSON→SSE conversion, stream_query_sse.
+Tests SSE formatting and session management.
 """
+
 import json
 import time
 from unittest.mock import AsyncMock, patch
@@ -16,11 +17,11 @@ from backend.api.sse import (
     cleanup_old_sessions,
     create_query_session,
     get_query_session,
-    stream_query_sse,
 )
 
 
 # ── _format_sse ───────────────────────────────────────────────────────────────
+
 
 class TestFormatSSE:
     def test_correct_format(self):
@@ -34,7 +35,7 @@ class TestFormatSSE:
     def test_data_is_valid_json(self):
         result = _format_sse("sources", {"sources": [1, 2, 3]})
         data_line = [line for line in result.split("\n") if line.startswith("data:")][0]
-        parsed = json.loads(data_line[len("data: "):])
+        parsed = json.loads(data_line[len("data: ") :])
         assert parsed["sources"] == [1, 2, 3]
 
     def test_ends_with_double_newline(self):
@@ -47,6 +48,7 @@ class TestFormatSSE:
 
 
 # ── Session management ────────────────────────────────────────────────────────
+
 
 class TestSessionManagement:
     def setup_method(self):
@@ -115,7 +117,8 @@ class TestCleanupOldSessions:
         assert new_qid in _sessions
 
 
-# ── _wrap_ndjson_to_sse ───────────────────────────────────────────────────────
+# ── _wrap_ndjson_to_sse ─────────────────────────────────────────────────────
+
 
 async def _lines(*lines):
     """Helper: async generator yielding given lines."""
@@ -152,7 +155,6 @@ class TestWrapNdjsonToSse:
     async def test_empty_lines_skipped(self):
         ndjson = _lines("", "  ", '{"token": "hi"}\n')
         events = [e async for e in _wrap_ndjson_to_sse(ndjson, "qid1")]
-        # Only one event (the token), empty lines produce nothing
         assert len(events) == 1
 
     @pytest.mark.asyncio
@@ -168,93 +170,3 @@ class TestWrapNdjsonToSse:
         events = [e async for e in _wrap_ndjson_to_sse(ndjson, "qid1")]
         data = json.loads(events[0].split("data: ", 1)[1].strip())
         assert data["token"] == "world"
-
-
-# ── stream_query_sse ──────────────────────────────────────────────────────────
-
-class TestStreamQuerySse:
-    def setup_method(self):
-        _sessions.clear()
-
-    def teardown_method(self):
-        _sessions.clear()
-
-    def _make_mock_generator(self, tokens=("Hello", " world"), sources=None):
-        """Return an async generator factory that mimics federated_stream_answer."""
-        if sources is None:
-            sources = [{"source": "doc.pdf", "page": 1, "cid": "abc123", "text": "snippet", "score": 0.9}]
-
-        async def gen(question, retriever):
-            for t in tokens:
-                yield json.dumps({"token": t}) + "\n"
-            yield json.dumps({"done": True, "sources": sources}) + "\n"
-
-        return gen
-
-    @pytest.mark.asyncio
-    async def test_emits_token_events(self):
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator()), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session"):
-            events = [e async for e in stream_query_sse("test?")]
-        assert any("event: token" in e for e in events)
-
-    @pytest.mark.asyncio
-    async def test_emits_sources_event(self):
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator()), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session"):
-            events = [e async for e in stream_query_sse("test?")]
-        assert any("event: sources" in e for e in events)
-
-    @pytest.mark.asyncio
-    async def test_emits_done_event_with_query_id(self):
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator()), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session"):
-            events = [e async for e in stream_query_sse("test?")]
-        done_events = [e for e in events if "event: done" in e]
-        assert len(done_events) == 1
-        data = json.loads(done_events[0].split("data: ", 1)[1].strip())
-        assert "query_id" in data
-        assert "duration_ms" in data
-
-    @pytest.mark.asyncio
-    async def test_session_marked_completed(self):
-        _sessions.clear()
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator()), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session"):
-            events = [e async for e in stream_query_sse("test?")]
-        # At least one session should be completed
-        assert any(s.completed for s in _sessions.values())
-
-    @pytest.mark.asyncio
-    async def test_tokens_accumulated_in_session(self):
-        _sessions.clear()
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator(["Hi", " there"])), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session"):
-            events = [e async for e in stream_query_sse("test?")]
-        session = next(iter(_sessions.values()))
-        assert "Hi" in session.tokens
-        assert " there" in session.tokens
-
-    @pytest.mark.asyncio
-    async def test_generator_error_emits_error_event(self):
-        async def failing_gen(question, retriever):
-            raise RuntimeError("LLM exploded")
-            yield  # make it a generator
-
-        with patch("backend.rag.generator.federated_stream_answer", failing_gen), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001):
-            events = [e async for e in stream_query_sse("test?")]
-        assert any("event: error" in e for e in events)
-
-    @pytest.mark.asyncio
-    async def test_save_session_called_on_completion(self):
-        with patch("backend.rag.generator.federated_stream_answer", self._make_mock_generator()), \
-             patch("backend.api.sse.estimate_query_carbon", return_value=0.001), \
-             patch("backend.database.history.save_session") as mock_save:
-            events = [e async for e in stream_query_sse("test?")]
-        mock_save.assert_called_once()

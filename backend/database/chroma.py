@@ -2,18 +2,25 @@
 ChromaDB client singleton for AURA backend.
 Always use get_collection() to access the persistent vector store.
 """
+
+from __future__ import annotations
+
 import chromadb
 from chromadb import Collection
+from typing import TYPE_CHECKING
 
 from backend.config import CHROMA_PATH, CHROMA_COLLECTION
 from backend.utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from chromadb import PersistentClient
+
 log = get_logger(__name__)
 
-_client: chromadb.PersistentClient | None = None
+_client: PersistentClient | None = None
 
 
-def get_client() -> chromadb.PersistentClient:
+def get_client() -> PersistentClient:
     """
     Return (or lazily create) the global ChromaDB PersistentClient.
 

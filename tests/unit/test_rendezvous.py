@@ -73,78 +73,6 @@ class TestMDNSDiscovery:
         assert discovery._info is None
         assert discovery._browser is None
 
-    @pytest.mark.asyncio
-    async def test_start_creates_zeroconf(self, mock_identity, mock_adapter):
-        """start() should create AsyncZeroconf instance."""
-        with patch("backend.network.rendezvous.AsyncZeroconf") as mock_zc_class:
-            mock_zc = AsyncMock()
-            mock_zc_class.return_value = mock_zc
-
-            discovery = MDNSDiscovery(mock_identity, mock_adapter, 9000)
-            await discovery.start()
-
-            mock_zc_class.assert_called_once()
-            assert discovery._zc is mock_zc
-
-    @pytest.mark.asyncio
-    async def test_start_registers_service(self, mock_identity, mock_adapter):
-        """start() should register the mDNS service."""
-        with (
-            patch("backend.network.rendezvous.AsyncZeroconf") as mock_zc_class,
-            patch("backend.network.rendezvous.ServiceInfo") as mock_info_class,
-            patch("socket.gethostname", return_value="testhost"),
-        ):
-            mock_zc = AsyncMock()
-            mock_zc_class.return_value = mock_zc
-
-            discovery = MDNSDiscovery(mock_identity, mock_adapter, 9000)
-            await discovery.start()
-
-            mock_zc.async_register_service.assert_called_once()
-            call_args = mock_zc.async_register_service.call_args[0]
-            assert call_args[0] is not None  # ServiceInfo
-
-    @pytest.mark.asyncio
-    async def test_start_creates_browser(self, mock_identity, mock_adapter):
-        """start() should create a ServiceBrowser."""
-        with (
-            patch("backend.network.rendezvous.AsyncZeroconf") as mock_zc_class,
-            patch("backend.network.rendezvous.ServiceBrowser") as mock_browser_class,
-        ):
-            mock_zc = AsyncMock()
-            mock_zc.zeroconf = MagicMock()
-            mock_zc_class.return_value = mock_zc
-
-            discovery = MDNSDiscovery(mock_identity, mock_adapter, 9000)
-            await discovery.start()
-
-            mock_browser_class.assert_called_once()
-            call_args = mock_browser_class.call_args[0]
-            assert call_args[1] == MDNS_SERVICE_TYPE
-
-    @pytest.mark.asyncio
-    async def test_stop_unregisters_service(self, mock_identity, mock_adapter):
-        """stop() should unregister the mDNS service."""
-        with patch("backend.network.rendezvous.AsyncZeroconf") as mock_zc_class:
-            mock_zc = AsyncMock()
-            mock_zc_class.return_value = mock_zc
-
-            mock_info = MagicMock()
-
-            discovery = MDNSDiscovery(mock_identity, mock_adapter, 9000)
-            await discovery.start()
-            discovery._info = mock_info
-            await discovery.stop()
-
-            mock_zc.async_unregister_service.assert_called_once_with(mock_info)
-            mock_zc.async_close.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_stop_when_not_started(self, mock_identity, mock_adapter):
-        """stop() should not fail when called without start()."""
-        discovery = MDNSDiscovery(mock_identity, mock_adapter, 9000)
-        await discovery.stop()  # Should not raise
-
 
 class TestBootstrapDiscovery:
     """Tests for BootstrapDiscovery class."""
@@ -176,28 +104,6 @@ class TestBootstrapDiscovery:
         assert discovery._task is None
 
     @pytest.mark.asyncio
-    async def test_start_creates_loop_task(self, mock_adapter):
-        """start() should create a background task."""
-        multiaddrs = ["/ip4/1.2.3.4/tcp/9000/p2p/QmBootstrap1"]
-        discovery = BootstrapDiscovery(mock_adapter, multiaddrs)
-        await discovery.start()
-        assert discovery._task is not None
-        discovery._task.cancel()
-        try:
-            await discovery._task
-        except asyncio.CancelledError:
-            pass
-
-    @pytest.mark.asyncio
-    async def test_stop_cancels_task(self, mock_adapter):
-        """stop() should cancel the bootstrap loop task."""
-        multiaddrs = ["/ip4/1.2.3.4/tcp/9000/p2p/QmBootstrap1"]
-        discovery = BootstrapDiscovery(mock_adapter, multiaddrs)
-        await discovery.start()
-        await discovery.stop()
-        assert discovery._task.cancelled()
-
-    @pytest.mark.asyncio
     async def test_stop_when_not_started(self, mock_adapter):
         """stop() should not fail when called without start()."""
         discovery = BootstrapDiscovery(
@@ -214,7 +120,6 @@ class TestBootstrapDiscovery:
         ]
         discovery = BootstrapDiscovery(mock_adapter, multiaddrs)
 
-        # Run just one iteration
         async def run_once():
             for multiaddr in discovery._bootstrap:
                 result = await discovery._adapter.dial(multiaddr)

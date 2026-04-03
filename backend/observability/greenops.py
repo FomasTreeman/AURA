@@ -59,9 +59,9 @@ class ScheduledTask:
     priority: TaskPriority
     task_fn: Callable
     args: tuple = ()
-    kwargs: dict = None
+    kwargs: dict | None = None
     max_defer_hours: float = 24.0
-    created_at: float = None
+    created_at: float | None = None
     estimated_watts: float = CPU_ACTIVE_WATTS
     estimated_duration_seconds: float = 60.0
 
@@ -201,7 +201,7 @@ class CarbonAwareScheduler:
     - Task priority is CRITICAL
     """
 
-    def __init__(self, tracker: CarbonTracker = None):
+    def __init__(self, tracker: CarbonTracker | None = None):
         self.tracker = tracker or CarbonTracker()
         self._queue: list[ScheduledTask] = []
         self._running: bool = False
@@ -278,7 +278,8 @@ class CarbonAwareScheduler:
         remaining = []
 
         for task in self._queue:
-            age_hours = (now - task.created_at) / 3600
+            created = task.created_at or now
+            age_hours = (now - created) / 3600
             should_run = False
 
             if task.priority == TaskPriority.CRITICAL:
@@ -324,10 +325,11 @@ class CarbonAwareScheduler:
         """Execute a scheduled task and record carbon emissions."""
         start_time = time.time()
         try:
+            kwargs = task.kwargs or {}
             if asyncio.iscoroutinefunction(task.task_fn):
-                await task.task_fn(*task.args, **task.kwargs)
+                await task.task_fn(*task.args, **kwargs)
             else:
-                task.task_fn(*task.args, **task.kwargs)
+                task.task_fn(*task.args, **kwargs)
 
             duration = time.time() - start_time
             carbon = self.tracker.estimate_carbon(duration, task.estimated_watts)
@@ -352,7 +354,7 @@ class CarbonAwareScheduler:
                 {
                     "name": t.name,
                     "priority": t.priority.value,
-                    "age_hours": (time.time() - t.created_at) / 3600,
+                    "age_hours": (time.time() - (t.created_at or time.time())) / 3600,
                     "max_defer_hours": t.max_defer_hours,
                 }
                 for t in self._queue

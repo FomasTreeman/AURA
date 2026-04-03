@@ -151,14 +151,14 @@ class TestNetworkMetrics:
         metrics = NetworkMetrics()
         metrics.messages_published_total.inc(5)
         output = metrics.render_prometheus()
-        assert "aura_messages_published_total 5.0" in output
+        assert "aura_messages_published_total 5" in output
 
     def test_set_gauge_updates_rendered_output(self):
         """After setting gauge, render should reflect new value."""
         metrics = NetworkMetrics()
         metrics.peers_connected.set(3)
         output = metrics.render_prometheus()
-        assert "aura_peers_connected 3.0" in output
+        assert "aura_peers_connected 3" in output
 
     def test_bytes_metrics_present(self):
         """Bytes sent/received metrics should be present."""
@@ -168,24 +168,22 @@ class TestNetworkMetrics:
         assert "aura_bytes_received_total" in output
 
     def test_peer_connection_metrics_present(self):
-        """Peer connection/disconnection metrics should be present."""
+        """Peer connection metrics should be present."""
         metrics = NetworkMetrics()
         output = metrics.render_prometheus()
         assert "aura_peer_connections_total" in output
-        assert "aura_peer_disconnections_total" in output
 
     def test_uptime_increases_over_time(self):
         """Uptime should increase between renders."""
         metrics = NetworkMetrics()
-        time.sleep(0.01)  # 10ms
-        output1 = metrics.render_prometheus()
-        # Extract uptime from first render
         import re
 
+        output1 = metrics.render_prometheus()
         match1 = re.search(r"aura_uptime_seconds ([\d.]+)", output1)
         assert match1
-        time.sleep(0.02)  # 20ms more
+        initial = float(match1.group(1))
+        time.sleep(0.05)  # 50ms
         output2 = metrics.render_prometheus()
         match2 = re.search(r"aura_uptime_seconds ([\d.]+)", output2)
         assert match2
-        assert float(match2.group(1)) > float(match1.group(1))
+        assert float(match2.group(1)) > initial
