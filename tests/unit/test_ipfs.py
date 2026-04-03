@@ -141,3 +141,78 @@ class TestIsValidCidV1:
     def test_invalid_chars_fail(self):
         """CID with characters outside base32 alphabet must fail."""
         assert not is_valid_cid_v1("bABCDEF0189+/")  # uppercase and invalid chars
+
+
+class TestIpfsConstants:
+    """Tests for IPFS module constants."""
+
+    def test_api_base_url(self):
+        """_IPFS_API_BASE should be a valid URL."""
+        from backend.storage.ipfs_integration import _IPFS_API_BASE
+
+        assert _IPFS_API_BASE.startswith("http://")
+
+    def test_multicodec_raw(self):
+        """_MULTICODEC_RAW should be 0x55."""
+        from backend.storage.ipfs_integration import _MULTICODEC_RAW
+
+        assert _MULTICODEC_RAW == 0x55
+
+    def test_multihash_sha256(self):
+        """_MULTIHASH_SHA256 should be 0x12."""
+        from backend.storage.ipfs_integration import _MULTIHASH_SHA256
+
+        assert _MULTIHASH_SHA256 == 0x12
+
+    def test_sha256_digest_len(self):
+        """_SHA256_DIGEST_LEN should be 32."""
+        from backend.storage.ipfs_integration import _SHA256_DIGEST_LEN
+
+        assert _SHA256_DIGEST_LEN == 0x20
+
+    def test_multibase_prefix(self):
+        """_MULTIBASE_BASE32_PREFIX should be 'b'."""
+        from backend.storage.ipfs_integration import _MULTIBASE_BASE32_PREFIX
+
+        assert _MULTIBASE_BASE32_PREFIX == "b"
+
+
+class TestCidEdgeCases:
+    """Edge case tests for CID computation."""
+
+    def test_large_content(self):
+        """Large content should produce valid CID."""
+        large_data = b"x" * 1000000  # 1MB
+        cid = compute_cid_v1(large_data)
+        assert is_valid_cid_v1(cid)
+        assert verify_cid_bytes(large_data, cid)
+
+    def test_unicode_content(self):
+        """Unicode content should produce valid CID."""
+        data = "Hello, 世界! 🎉".encode("utf-8")
+        cid = compute_cid_v1(data)
+        assert is_valid_cid_v1(cid)
+        assert verify_cid_bytes(data, cid)
+
+    def test_binary_content(self):
+        """Binary content with null bytes should produce valid CID."""
+        data = b"\x00\x01\x02\xff\xfe\xfd"
+        cid = compute_cid_v1(data)
+        assert is_valid_cid_v1(cid)
+        assert verify_cid_bytes(data, cid)
+
+    def test_long_file_path(self, tmp_path):
+        """Files with long paths should work."""
+        content = b"test content"
+        path = tmp_path / "test.txt"
+        path.write_bytes(content)
+        cid = compute_file_cid(path)
+        assert is_valid_cid_v1(cid)
+
+    def test_verify_cid_bytes_deterministic(self):
+        """verify_cid_bytes should be deterministic."""
+        data = b"test data for determinism"
+        cid = compute_cid_v1(data)
+        assert verify_cid_bytes(data, cid)
+        assert verify_cid_bytes(data, cid)  # Call again
+        assert verify_cid_bytes(data, cid)  # Call third time

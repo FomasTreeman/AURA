@@ -136,3 +136,147 @@ class TestRedactEdgeCases:
         result = redact(text)
         assert "DE89370400440532013000" not in result
         assert REDACTED in result
+
+
+class TestRedactPhoneFormats:
+    """Tests for various phone number formats."""
+
+    def test_phone_dashed(self):
+        """Dashed phone format should be redacted."""
+        text = "Call 555-123-4567"
+        result = redact(text)
+        assert "555-123-4567" not in result
+        assert REDACTED in result
+
+    def test_phone_parentheses(self):
+        """Phone with area code in parentheses should be redacted."""
+        text = "Call (555) 123-4567"
+        result = redact(text)
+        assert "(555) 123-4567" not in result
+        assert REDACTED in result
+
+    def test_phone_with_country_code(self):
+        """International phone with country code should be redacted."""
+        text = "Call +1-555-123-4567"
+        result = redact(text)
+        assert "+1-555-123-4567" not in result
+        assert REDACTED in result
+
+    def test_phone_dot_separated(self):
+        """Dot-separated phone format should be redacted."""
+        text = "Call 555.123.4567"
+        result = redact(text)
+        assert "555.123.4567" not in result
+        assert REDACTED in result
+
+    def test_phone_no_format(self):
+        """Plain 10-digit phone should be redacted."""
+        text = "Call 5551234567"
+        result = redact(text)
+        assert "5551234567" not in result
+        assert REDACTED in result
+
+
+class TestRedactEmailFormats:
+    """Tests for various email formats."""
+
+    def test_email_standard(self):
+        """Standard email should be redacted."""
+        text = "Contact user@domain.com"
+        result = redact(text)
+        assert "user@domain.com" not in result
+        assert REDACTED in result
+
+    def test_email_subdomain(self):
+        """Email with subdomain should be redacted."""
+        text = "Email: john.doe@mail.company.org"
+        result = redact(text)
+        assert "john.doe@mail.company.org" not in result
+        assert REDACTED in result
+
+    def test_email_plus_addressing(self):
+        """Email with plus addressing should be redacted."""
+        text = "Send to alice+test@gmail.com"
+        result = redact(text)
+        assert "alice+test@gmail.com" not in result
+        assert REDACTED in result
+
+
+class TestRedactIPAddresses:
+    """Tests for IP address detection."""
+
+    def test_ipv4_standard(self):
+        """Standard IPv4 should be redacted."""
+        text = "Server: 10.0.0.1"
+        result = redact(text)
+        assert "10.0.0.1" not in result
+        assert REDACTED in result
+
+    def test_ipv4_loopback(self):
+        """Loopback address should be redacted."""
+        text = "Localhost: 127.0.0.1"
+        result = redact(text)
+        assert "127.0.0.1" not in result
+        assert REDACTED in result
+
+    def test_ipv4_invalid_out_of_range(self):
+        """Invalid IP with out-of-range octets should not be redacted."""
+        text = "Number: 256.0.0.1"
+        result = redact(text)
+        assert "256.0.0.1" in result
+
+    def test_ipv4_private_range(self):
+        """Private IP range should be redacted."""
+        text = "NAT: 192.168.1.100"
+        result = redact(text)
+        assert "192.168.1.100" not in result
+        assert REDACTED in result
+
+
+class TestRedactIBAN:
+    """Tests for IBAN detection."""
+
+    def test_iban_german(self):
+        """German IBAN should be redacted."""
+        text = "Account: DE89370400440532013000"
+        result = redact(text)
+        assert "DE89370400440532013000" not in result
+
+    def test_iban_uk(self):
+        """UK IBAN should be redacted."""
+        text = "GB82WEST12345698765432"
+        result = redact(text)
+        assert "GB82WEST12345698765432" not in result
+
+    def test_iban_french(self):
+        """French IBAN should be redacted."""
+        text = "FR1420041010050500013M02606"
+        result = redact(text)
+        assert "FR1420041010050500013M02606" not in result
+
+
+class TestGetPatterns:
+    """Tests for _get_patterns function."""
+
+    def test_get_patterns_returns_dict(self):
+        """_get_patterns should return a dict."""
+        from backend.ingestion.redactor import _get_patterns
+
+        patterns = _get_patterns()
+        assert isinstance(patterns, dict)
+
+    def test_get_patterns_contains_expected_keys(self):
+        """_get_patterns should contain expected entity types."""
+        from backend.ingestion.redactor import _get_patterns
+
+        patterns = _get_patterns()
+        expected = [
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "US_SSN",
+            "CREDIT_CARD",
+            "IP_ADDRESS",
+            "IBAN_CODE",
+        ]
+        for key in expected:
+            assert key in patterns

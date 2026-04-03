@@ -187,3 +187,47 @@ class TestNetworkMetrics:
         match2 = re.search(r"aura_uptime_seconds ([\d.]+)", output2)
         assert match2
         assert float(match2.group(1)) > initial
+
+    def test_all_counters_start_at_zero(self):
+        """All counters should initialize at zero."""
+        metrics = NetworkMetrics()
+        assert metrics.messages_published_total.value == 0.0
+        assert metrics.messages_received_total.value == 0.0
+        assert metrics.failed_validations_total.value == 0.0
+        assert metrics.bytes_sent_total.value == 0.0
+        assert metrics.bytes_received_total.value == 0.0
+        assert metrics.peer_connections_total.value == 0.0
+        assert metrics.peer_disconnections_total.value == 0.0
+
+    def test_gauge_starts_at_zero(self):
+        """Peers gauge should start at zero."""
+        metrics = NetworkMetrics()
+        assert metrics.peers_connected.value == 0.0
+
+    def test_render_contains_type_annotations(self):
+        """Prometheus format should include TYPE annotations."""
+        metrics = NetworkMetrics()
+        output = metrics.render_prometheus()
+        assert "# TYPE aura_peers_connected gauge" in output
+        assert "# TYPE aura_uptime_seconds gauge" in output
+        assert "# TYPE aura_messages_published_total counter" in output
+
+    def test_render_contains_help_annotations(self):
+        """Prometheus format should include HELP annotations."""
+        metrics = NetworkMetrics()
+        output = metrics.render_prometheus()
+        assert "# HELP aura_peers_connected" in output
+        assert "# HELP aura_messages_published_total" in output
+
+    def test_large_increment_value(self):
+        """Counter should handle large increment values."""
+        metrics = NetworkMetrics()
+        metrics.messages_published_total.inc(1_000_000)
+        assert metrics.messages_published_total.value == 1_000_000.0
+
+    def test_negative_increment(self):
+        """Counter should handle negative increments via subtraction."""
+        c = _Counter()
+        c.inc(100)
+        c.inc(-50)  # Negative increment
+        assert c.value == 50.0
