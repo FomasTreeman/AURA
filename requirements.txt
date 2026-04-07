@@ -13,3 +13,5 @@ typer
 httpx
 pytest
 pytest-asyncio
+cryptography
+pysonar
