@@ -1,1 +1,0 @@
- 2tsXZhrfrontend/tests/query.spec.ts

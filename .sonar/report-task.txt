@@ -1,6 +1,0 @@
-projectKey=Aura
-serverUrl=http://sonarqube.sonarqube.orb.local
-serverVersion=25.7.0.110598
-dashboardUrl=http://sonarqube.sonarqube.orb.local/dashboard?id=Aura
-ceTaskId=b7993e85-4915-4387-9eea-4076f13eaab5
-ceTaskUrl=http://sonarqube.sonarqube.orb.local/api/ce/task?id=b7993e85-4915-4387-9eea-4076f13eaab5

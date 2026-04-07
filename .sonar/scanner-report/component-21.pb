@@ -1,1 +1,0 @@
- 2cssXIhrfrontend/src/app/globals.css
